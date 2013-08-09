@@ -1,19 +1,44 @@
-var canvas = document.getElementById('canvas');
+var scanvas = document.getElementById('canvas');
+var sctx = scanvas.getContext('2d');
+var canvas = document.createElement('canvas');
+canvas.width = scanvas.width / 5;
+canvas.height = scanvas.height / 5;
 var ctx = canvas.getContext('2d');
 var canvasData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-var camera = { 'position': Float3(),
-               'rotation': Float3(),
-               'zoom': 200 };
+var camera = { position: Float3(0, 0, 20),
+               rotation: Float3(),
+               zoom: 600 };
                
-var box = [ Float3(-1, -1, 10),
-            Float3(-1, 1, 10),
-            Float3(1, 1, 10),
-            Float3(-1, -1, 10),
-            Float3(1, 1, 10),
-            Float3(1, -1, 10) ];
+var box = [ Vertex(Float3(-1, -1, -1), Float2(0, 0)),
+            Vertex(Float3(-1, 1, -1), Float2(0, 1)),
+            Vertex(Float3(1, 1, -1), Float2(1, 1)),
+            Vertex(Float3(-1, -1, -1), Float2(0, 0)),
+            Vertex(Float3(1, 1, -1), Float2(1, 1)),
+            Vertex(Float3(1, -1, -1), Float2(1, 0)),
+            Vertex(Float3(-1, -1, 1), Float2(0, 0)),
+            Vertex(Float3(-1, 1, 1), Float2(0, 1)),
+            Vertex(Float3(1, 1, 1), Float2(1, 1)),
+            Vertex(Float3(-1, -1, 1), Float2(0, 0)),
+            Vertex(Float3(1, 1, 1), Float2(1, 1)),
+            Vertex(Float3(1, -1, 1), Float2(1, 0)),
+            Vertex(Float3(-1, -1, -1), Float2(0, 0)),
+            Vertex(Float3(-1, 1, -1), Float2(0, 1)),
+            Vertex(Float3(-1, 1, 1), Float2(1, 1)),
+            Vertex(Float3(-1, -1, -1), Float2(0, 0)),
+            Vertex(Float3(-1, 1, 1), Float2(1, 1)),
+            Vertex(Float3(-1, -1, 1), Float2(1, 0)),
+            Vertex(Float3(1, -1, -1), Float2(0, 0)),
+            Vertex(Float3(1, 1, -1), Float2(0, 1)),
+            Vertex(Float3(1, 1, 1), Float2(1, 1)),
+            Vertex(Float3(1, -1, -1), Float2(0, 0)),
+            Vertex(Float3(1, 1, 1), Float2(1, 1)),
+            Vertex(Float3(1, -1, 1), Float2(1, 0)) ];
+refresh(box);
             
 var keys = [];
+
+var textures = {};
 
 window.onkeydown = function(event) {
     keys[event.keyCode] = true;
@@ -23,14 +48,41 @@ window.onkeyup = function(event) {
     keys[event.keyCode] = false;
 };
 
-onTick();
+window.onload = function() {
+    var sources = {
+        test: "assets/test.png",
+    };
+    loadImages(sources, onTick);
+};
+
+function loadImages(sources, callback) {
+    var images = {};
+    var loadedImages = 0;
+    var numImages = 0;
+    for (var src in sources) {
+        numImages++;
+    }
+    for (var src in sources) {
+        images[src] = new Image();
+        images[src].onload = function(){
+            if (++loadedImages >= numImages) {
+                textures[src] = getImageData(images[src]);
+                callback();
+            }
+        };
+        images[src].src = sources[src];
+    }
+}
 
 function onTick() {
     requestAnimationFrame(onTick);
-    clear(box);
-    update();
     draw(box);
+    update();
+    refresh(box);
+    draw(box, textures["test"]);
     ctx.putImageData(canvasData, 0, 0);
+    sctx.clearRect(0, 0, scanvas.width, scanvas.height);
+    sctx.drawImage(canvas, 0, 0, scanvas.width, scanvas.height);
 }
 
 function update() {
@@ -52,29 +104,18 @@ function update() {
         camera.rotation.x -= 0.05;
 }
 
-function clear(shape) {
-    coords = shapeToCoords(shape);
-    for (var i = 0; i < coords.length; i += 3) {
-        if (i + 2 < coords.length) {
-            if (typeof coords[i] !== 'undefined' &&
-                typeof coords[i+1] !== 'undefined' &&
-                typeof coords[i+2] !== 'undefined') {
-                var color = Float4(0, 0, 0, 0);
-                drawTriangle([ coords[i], coords[i+1], coords[i+2] ], color);
-            }
-        }
-    }
+function refresh(shape) {
+    for (var i = 0; i < shape.length; i++)
+        shape[i].screen = toScreenCoords(shape[i].position, camera);
 }
 
-function draw(shape) {
-    coords = shapeToCoords(shape);
-    for (var i = 0; i < coords.length; i += 3) {
-        if (i + 2 < coords.length) {
-            if (typeof coords[i] !== 'undefined' &&
-                typeof coords[i+1] !== 'undefined' &&
-                typeof coords[i+2] !== 'undefined') {
-                var color = Float4(0, 0, 0, 255);
-                drawTriangle([ coords[i], coords[i+1], coords[i+2] ], color);
+function draw(shape, texture) {
+    for (var i = 0; i < shape.length; i += 3) {
+        if (i + 2 < shape.length) {
+            if (typeof shape[i].screen !== 'undefined' &&
+                typeof shape[i+1].screen !== 'undefined' &&
+                typeof shape[i+2].screen !== 'undefined') {
+                drawTriangle([ shape[i], shape[i+1], shape[i+2] ], texture);
             }
         }
     }
@@ -90,18 +131,29 @@ function setPixel(point, color) {
     }
 }
 
-function drawLine(point1, point2, color) {
-    var x0 = point1.x | 0;
-    var y0 = point1.y | 0;
-    var x1 = point2.x | 0;
-    var y1 = point2.y | 0;
+function drawLine(vertex1, vertex2, texture) {
+    var x0 = vertex1.screen.x | 0;
+    var y0 = vertex1.screen.y | 0;
+    var x1 = vertex2.screen.x | 0;
+    var y1 = vertex2.screen.y | 0;
     var dx = Math.abs(x1 - x0);
     var dy = Math.abs(y1 - y0);
+    var length = Math.sqrt(dx * dx + dy * dy);
     var sx = x0 < x1 ? 1 : -1;
     var sy = y0 < y1 ? 1 : -1;
     var err = dx - dy;
     
+    var color = Float4(0, 0, 0, 0);
+    
+    var i = 0;
     while (x0 !== x1 || y0 !== y1) {
+        if (typeof texture !== 'undefined') {
+            var interp = i / length;
+            var tx = (1.0 - interp) * vertex1.texcoord.x + interp * vertex2.texcoord.x;
+            var ty = (1.0 - interp) * vertex1.texcoord.y + interp * vertex2.texcoord.y;
+            color = getTextureColor(texture, Float2(tx, ty));
+            i++;
+        }
         setPixel(Float2(x0, y0), color);
         var e2 = 2 * err;
         if (e2 > -dy) {
@@ -115,49 +167,69 @@ function drawLine(point1, point2, color) {
     }
 }
 
-function drawTriangle(triangle, color) {
-    order = getVertexOrder(triangle);
-    var d0 = (triangle[order[1]].x - triangle[order[0]].x) / (triangle[order[1]].y - triangle[order[0]].y)
-    var d1 = (triangle[order[2]].x - triangle[order[0]].x) / (triangle[order[2]].y - triangle[order[0]].y)
+function drawTriangle(triangle, texture) {
+    var order = getTriangleOrder(triangle);
+    var d0 = (triangle[order[1]].screen.x - triangle[order[0]].screen.x) / (triangle[order[1]].screen.y - triangle[order[0]].screen.y)
+    var d1 = (triangle[order[2]].screen.x - triangle[order[0]].screen.x) / (triangle[order[2]].screen.y - triangle[order[0]].screen.y)
     
-    for (var i = 0; i < triangle[order[1]].y - triangle[order[0]].y; i++) {
-        drawLine(Float2(triangle[order[0]].x + i * d0, triangle[order[0]].y + i), Float2(triangle[order[0]].x + i * d1, triangle[order[0]].y + i), color);
-        if (i > canvasData.width)
+    var size = triangle[order[1]].screen.y - triangle[order[0]].screen.y;
+    for (var i = 0; i < size; i++) {
+        var interp = i / size;
+        var texcoord1 = Float2(interp * triangle[order[1]].texcoord.x + (1.0 - interp) * triangle[order[0]].texcoord.x,
+                               interp * triangle[order[1]].texcoord.y + (1.0 - interp) * triangle[order[0]].texcoord.y);
+        var texcoord2 = Float2(interp * triangle[order[2]].texcoord.x + (1.0 - interp) * triangle[order[0]].texcoord.x,
+                               interp * triangle[order[2]].texcoord.y + (1.0 - interp) * triangle[order[0]].texcoord.y);
+        var vertex1 = Vertex(Float3(), texcoord1);
+        var vertex2 = Vertex(Float3(), texcoord2);
+        vertex1.screen = Float2(triangle[order[0]].screen.x + i * d0, triangle[order[0]].screen.y + i);
+        vertex2.screen = Float2(triangle[order[0]].screen.x + i * d1, triangle[order[0]].screen.y + i);
+        drawLine(vertex1, vertex2, texture);
+        if (i > canvasData.height)
             break;
     }
     
-    d0 = (triangle[order[2]].x - triangle[order[1]].x) / (triangle[order[2]].y - triangle[order[1]].y);
+    d0 = (triangle[order[2]].screen.x - triangle[order[1]].screen.x) / (triangle[order[2]].screen.y - triangle[order[1]].screen.y);
     
-    for (var i = triangle[order[2]].y - triangle[order[1]].y; i > 0; i--) {
-        drawLine(Float2(triangle[order[2]].x - i * d0, triangle[order[2]].y - i), Float2(triangle[order[2]].x - i * d1, triangle[order[2]].y - i), color);
-        if (i > canvasData.width)
-            break;
+    var size = triangle[order[2]].screen.y - triangle[order[1]].screen.y;
+    for (var i = size; i > 0; i--) {
+        var interp = (size - i) / size;
+        var texcoord1 = Float2(interp * triangle[order[2]].texcoord.x + (1.0 - interp) * triangle[order[1]].texcoord.x,
+                               interp * triangle[order[2]].texcoord.y + (1.0 - interp) * triangle[order[1]].texcoord.y);
+        var texcoord2 = Float2(interp * triangle[order[2]].texcoord.x + (1.0 - interp) * triangle[order[0]].texcoord.x,
+                               interp * triangle[order[2]].texcoord.y + (1.0 - interp) * triangle[order[0]].texcoord.y);
+        var vertex1 = Vertex(Float3(), texcoord1);
+        var vertex2 = Vertex(Float3(), texcoord2);
+        vertex1.screen = Float2(triangle[order[2]].screen.x - i * d0, triangle[order[2]].screen.y - i);
+        vertex2.screen = Float2(triangle[order[2]].screen.x - i * d1, triangle[order[2]].screen.y - i);
+        drawLine(vertex1, vertex2, texture);
+        if (i > canvasData.height)
+            break; 
     }
 }
 
-function getVertexOrder(triangle) {
+function getTriangleOrder(triangle) {
     var order = [];
-    if (triangle[0].y < triangle[1].y) {
-        if (triangle[0].y < triangle[2].y)
+    if (triangle[0].screen.y < triangle[1].screen.y) {
+        if (triangle[0].screen.y < triangle[2].screen.y)
             order[0] = 0;
         else
             order[0] = 2;
     }
     else {
-        if (triangle[1].y < triangle[2].y)
+        if (triangle[1].screen.y < triangle[2].screen.y)
             order[0] = 1;
         else
             order[0] = 2;
     }
     
-    if (triangle[0].y > triangle[1].y) {
-        if (triangle[0].y > triangle[1].y)
+    if (triangle[0].screen.y > triangle[1].screen.y) {
+        if (triangle[0].screen.y > triangle[2].screen.y)
             order[2] = 0;
         else
             order[2] = 2;
     }
     else {
-        if (triangle[1].y > triangle[2].y)
+        if (triangle[1].screen.y > triangle[2].screen.y)
             order[2] = 1;
         else
             order[2] = 2;
@@ -166,31 +238,23 @@ function getVertexOrder(triangle) {
     return order;
 }
 
-function shapeToCoords(shape) {
-    var coords = [];
-    for (var i = 0; i < shape.length; i++) {
-        coords.push(toScreenCoords(shape[i], camera));
-    }
-    return coords;
-}
-
 function toScreenCoords(point, camera) {
     var x = point.x + camera.position.x;
     var y = point.y + camera.position.y;
     var z = point.z + camera.position.z;
     
     var temp = Float3();
-    temp.z = z*Math.cos(camera.rotation.y) - x*Math.sin(camera.rotation.y)
-    temp.x = z*Math.sin(camera.rotation.y) + x*Math.cos(camera.rotation.y)
-    temp.y = y
+    temp.z = z*Math.cos(camera.rotation.y) - x*Math.sin(camera.rotation.y);
+    temp.x = z*Math.sin(camera.rotation.y) + x*Math.cos(camera.rotation.y);
+    temp.y = y;
     
     x = temp.x;
     y = temp.y;
     z = temp.z;
 
-    temp.y = y*Math.cos(camera.rotation.x) - z*Math.sin(camera.rotation.x)
-    temp.z = y*Math.sin(camera.rotation.x) + z*Math.cos(camera.rotation.x)
-    temp.x = x
+    temp.y = y*Math.cos(camera.rotation.x) - z*Math.sin(camera.rotation.x);
+    temp.z = y*Math.sin(camera.rotation.x) + z*Math.cos(camera.rotation.x);
+    temp.x = x;
     
     x = temp.x;
     y = temp.y;
@@ -225,23 +289,41 @@ function moveCameraRight() {
     camera.position.z -= Math.cos(camera.rotation.y - Math.PI / 2) * 0.1;
 }
 
+function getImageData(image) {
+    var imageCanvas = document.createElement("canvas");
+    imageCanvas.width = image.width;
+    imageCanvas.height = image.height;
+    var imageCtx = imageCanvas.getContext('2d');
+    imageCtx.drawImage(image, 0, 0);
+    return imageCtx.getImageData(0, 0, image.width, image.height);
+}
+
+function getTextureColor(texture, texcoord) {
+    var index = ((texcoord.x * texture.width | 0) + (texcoord.y * texture.height | 0) * texture.width) * 4;
+    return Float4(texture.data[index++], texture.data[index++], texture.data[index++], texture.data[index++]);
+}
+
+function Vertex(position, texcoord) {
+    return { position: position, screen: Float2(0, 0), texcoord: texcoord };
+}
+
 function Float4(x, y, z, w) {
     x = typeof x !== 'undefined' ? x : 0;
     y = typeof y !== 'undefined' ? y : 0;
     z = typeof z !== 'undefined' ? z : 0;
     w = typeof w !== 'undefined' ? w : 0;
-    return { 'x': x, 'y': y, 'z': z, 'w': w };
+    return { x: x, y: y, z: z, w: w };
 }
 
 function Float3(x, y, z) {
     x = typeof x !== 'undefined' ? x : 0;
     y = typeof y !== 'undefined' ? y : 0;
     z = typeof z !== 'undefined' ? z : 0;
-    return { 'x': x, 'y': y, 'z': z };
+    return { x: x, y: y, z: z };
 }
 
 function Float2(x, y) {
     x = typeof x !== 'undefined' ? x : 0;
     y = typeof y !== 'undefined' ? y : 0;
-    return { 'x': x, 'y': y };
+    return { x: x, y: y };
 }
